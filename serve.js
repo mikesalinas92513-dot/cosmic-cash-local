@@ -146,6 +146,13 @@ const server = http.createServer((req, res) => {
       return sendMock(res, '{"customizations":[]}', "application/json");
     }
 
+    // Favicon: avoid 404 in console (browser requests it automatically)
+    if (pathname === "/favicon.ico") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+
     // Static file – serve index.html for root, with fallbacks for vs40cosmiccash assets
     const isRoot = pathname === "/" || pathname === "" || pathname === "/index.html";
     const relPath = isRoot ? "index.html" : pathname.replace(/^\//, "");
