@@ -98,26 +98,60 @@ const server = http.createServer((req, res) => {
       return sendMock(res, '{"customizations":[]}', "application/json");
     }
 
-    // Static file – serve index.html for root
+    // Static file – serve index.html for root, with fallbacks for vs40cosmiccash assets
     const isRoot = pathname === "/" || pathname === "" || pathname === "/index.html";
     const relPath = isRoot ? "index.html" : pathname.replace(/^\//, "");
-    const filePath = path.join(ROOT, relPath);
 
-    if (!path.normalize(filePath).startsWith(ROOT)) {
-      res.statusCode = 403;
-      return res.end("Forbidden");
+    // Build list of candidate relative paths to try
+    const relCandidates = [relPath];
+
+    // For game assets, some requests may miss the "desktop" or "desktop/game" segment.
+    // Try a few safe fallbacks so JSON/resources resolve correctly both locally and on Render.
+    const vsPrefix =
+      "demogamesfree.pragmaticplay.net/gs2c/common/v1/games-html5/games/vs/vs40cosmiccash/";
+    if (relPath.startsWith(vsPrefix)) {
+      const tail = relPath.slice(vsPrefix.length); // part after vs40cosmiccash/
+
+      // If there is no "desktop/" segment, try inserting it
+      if (!tail.startsWith("desktop/")) {
+        relCandidates.push(vsPrefix + "desktop/" + tail);
+      }
+
+      // If there is no "desktop/game/" segment, try inserting it before the filename
+      if (!tail.startsWith("desktop/game/")) {
+        const tailNoLeadingGame = tail.startsWith("game/") ? tail.slice("game/".length) : tail;
+        relCandidates.push(vsPrefix + "desktop/game/" + tailNoLeadingGame);
+      }
     }
 
-    fs.stat(filePath, (err, stat) => {
-      if (err || !stat || !stat.isFile()) {
+    // Try candidates in order until one exists
+    const tryCandidate = (index) => {
+      if (index >= relCandidates.length) {
         res.statusCode = 404;
         return res.end("Not Found: " + pathname);
       }
-      const ext = path.extname(filePath);
-      res.statusCode = 200;
-      res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
-      fs.createReadStream(filePath).pipe(res);
-    });
+
+      const candidateRel = relCandidates[index];
+      const candidatePath = path.join(ROOT, candidateRel);
+      const normalized = path.normalize(candidatePath);
+
+      if (!normalized.startsWith(ROOT)) {
+        res.statusCode = 403;
+        return res.end("Forbidden");
+      }
+
+      fs.stat(candidatePath, (err, stat) => {
+        if (err || !stat || !stat.isFile()) {
+          return tryCandidate(index + 1);
+        }
+        const ext = path.extname(candidatePath);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
+        fs.createReadStream(candidatePath).pipe(res);
+      });
+    };
+
+    tryCandidate(0);
   } catch (e) {
     console.error("Server error:", e);
     res.statusCode = 500;
