@@ -13,6 +13,17 @@ const path = require("path");
 const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
 const DEMO = path.join(ROOT, "demogamesfree.pragmaticplay.net", "gs2c");
+const VS_ROOT = path.join(
+  ROOT,
+  "demogamesfree.pragmaticplay.net",
+  "gs2c",
+  "common",
+  "v1",
+  "games-html5",
+  "games",
+  "vs",
+  "vs40cosmiccash"
+);
 
 const MIME = {
   ".html": "text/html",
@@ -39,6 +50,43 @@ let gameServiceBody = null;
 let reloadBalanceBody = null;
 let saveSettingsBody = null;
 let statsBody = null;
+
+// Index of vs40cosmiccash assets by filename (lowercased) for robust path fallback
+let vsFileIndex = null;
+
+function buildVsFileIndex() {
+  vsFileIndex = Object.create(null);
+  try {
+    if (!fs.existsSync(VS_ROOT)) return;
+    const stack = [VS_ROOT];
+    while (stack.length) {
+      const dir = stack.pop();
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          stack.push(full);
+        } else if (entry.isFile()) {
+          const key = entry.name.toLowerCase();
+          const rel = path.relative(ROOT, full).replace(/\\/g, "/");
+          if (!vsFileIndex[key]) {
+            vsFileIndex[key] = rel;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to build vs40cosmiccash file index:", e.message);
+    vsFileIndex = null;
+  }
+}
+
+function findVsFileByName(fileName) {
+  if (!fileName) return null;
+  if (!vsFileIndex) buildVsFileIndex();
+  if (!vsFileIndex) return null;
+  return vsFileIndex[fileName.toLowerCase()] || null;
+}
 
 function loadMockResponses() {
   const gsPath = path.join(DEMO, "ge", "v4", "gameService.html");
@@ -127,6 +175,21 @@ const server = http.createServer((req, res) => {
     // Try candidates in order until one exists
     const tryCandidate = (index) => {
       if (index >= relCandidates.length) {
+        // As a last resort for vs40cosmiccash assets, try to locate by filename only.
+        if (relPath.startsWith(vsPrefix)) {
+          const fileName = path.basename(relPath);
+          const fallbackRel = findVsFileByName(fileName);
+          if (fallbackRel) {
+            const fallbackPath = path.join(ROOT, fallbackRel);
+            const normalizedFallback = path.normalize(fallbackPath);
+            if (normalizedFallback.startsWith(ROOT) && fs.existsSync(fallbackPath)) {
+              const ext = path.extname(fallbackPath);
+              res.statusCode = 200;
+              res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
+              return fs.createReadStream(fallbackPath).pipe(res);
+            }
+          }
+        }
         res.statusCode = 404;
         return res.end("Not Found: " + pathname);
       }
