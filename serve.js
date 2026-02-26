@@ -189,11 +189,17 @@ const server = http.createServer((req, res) => {
           if (fallbackRel) {
             const fallbackPath = path.join(ROOT, fallbackRel);
             const normalizedFallback = path.normalize(fallbackPath);
-            if (normalizedFallback.startsWith(ROOT) && fs.existsSync(fallbackPath)) {
-              const ext = path.extname(fallbackPath);
-              res.statusCode = 200;
-              res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
-              return fs.createReadStream(fallbackPath).pipe(res);
+            if (normalizedFallback.startsWith(ROOT)) {
+              try {
+                const fallbackStat = fs.statSync(fallbackPath);
+                if (fallbackStat.isFile()) {
+                  const ext = path.extname(fallbackPath);
+                  res.statusCode = 200;
+                  res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
+                  res.setHeader("Content-Length", fallbackStat.size);
+                  return fs.createReadStream(fallbackPath).pipe(res);
+                }
+              } catch (_) {}
             }
           }
         }
@@ -217,6 +223,7 @@ const server = http.createServer((req, res) => {
         const ext = path.extname(candidatePath);
         res.statusCode = 200;
         res.setHeader("Content-Type", MIME[ext] || "application/octet-stream");
+        res.setHeader("Content-Length", stat.size);
         fs.createReadStream(candidatePath).pipe(res);
       });
     };
