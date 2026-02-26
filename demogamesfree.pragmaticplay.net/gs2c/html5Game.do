@@ -346,6 +346,18 @@ UHT_ALL = true;
 
             // Patch ServerInterface.ParseConfigFile when no config file is present (local clone)
             var patchInterval = setInterval(function () {
+                // Wrap internalContinueImporting so missing asset data does not crash the frame loop
+                if (typeof window.internalContinueImporting === "function" && !window.__internalContinueImportingPatched) {
+                    window.__internalContinueImportingPatched = true;
+                    var origInternalContinue = window.internalContinueImporting;
+                    window.internalContinueImporting = function () {
+                        try {
+                            return origInternalContinue.apply(this, arguments);
+                        } catch (e) {
+                            console.warn("Game import skipped (missing asset):", e.message);
+                        }
+                    };
+                }
                 if (window.ServerInterface && ServerInterface.prototype.ParseConfigFile) {
                     var originalParse = ServerInterface.prototype.ParseConfigFile;
                     ServerInterface.prototype.ParseConfigFile = function () {
@@ -546,9 +558,26 @@ UHT_ALL = true;
                             this.isEnabled = [];
                             this.isEnabledPrev = [];
                             this.internalOrder = [];
+                            this.notifications = this.notifications || [];
                             return;
                         }
                         return origMCAwake.apply(this, arguments);
+                    };
+                }
+                // Patch MenuController.UpdateNGN so notifications.length never throws (e.g. when Awake bailed)
+                if (window.MenuController && MenuController.prototype.UpdateNGN) {
+                    var origUpdateNGN = MenuController.prototype.UpdateNGN;
+                    MenuController.prototype.UpdateNGN = function () {
+                        if (!this.notifications || !Array.isArray(this.notifications)) return;
+                        return origUpdateNGN.apply(this, arguments);
+                    };
+                }
+                // Patch MenuController.UpdateButtons to guard isEnabled / order
+                if (window.MenuController && MenuController.prototype.UpdateButtons) {
+                    var origUpdateButtons = MenuController.prototype.UpdateButtons;
+                    MenuController.prototype.UpdateButtons = function () {
+                        if (!Array.isArray(this.isEnabled) || !Array.isArray(this.order)) return;
+                        return origUpdateButtons.apply(this, arguments);
                     };
                 }
 
